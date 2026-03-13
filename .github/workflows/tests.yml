@@ -21,10 +21,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run unit tests
-        run: pytest tests/ --ignore=tests/test_yolo_integration.py -v
-        env:
-          PYTHONPATH: ${{ github.workspace }}
+        export PYTHONPATH=$PYTHONPATH:$(pwd)
+        run: python -m pytest tests/ --ignore=tests/test_yolo_integration.py -v
       - name: Run YOLO integration test
-        run: pytest tests/test_yolo_integration.py -v
-        env:
-          PYTHONPATH: ${{ github.workspace }}
+        export PYTHONPATH=$PYTHONPATH:$(pwd)
+        run: python -m pytest tests/test_yolo_integration.py -v
