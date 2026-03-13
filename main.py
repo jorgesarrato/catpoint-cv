@@ -100,14 +100,17 @@ def main():
                 break
     finally:
         stream.stop()
-        cv2.destroyAllWindows()
+        if not args.no_display:
+            cv2.destroyAllWindows()
+            cv2.waitKey(1)
         stats = pipeline.stats
         print("\n--- Session Summary ---")
         print(f"  Frames processed : {stats['total_frames']}")
         print(f"  Cat detections   : {stats['detection_frames']}")
         print(f"  Images saved     : {stats['saved_frames']}")
         print(f"  Output dir       : {args.output}")
-
-
+ 
+ 
 if __name__ == "__main__":
     main()
+ 
