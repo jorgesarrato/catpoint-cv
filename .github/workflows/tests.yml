@@ -1,16 +1,12 @@
 name: Tests
-
 on:
   push:
   pull_request:
-
 jobs:
   test:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -22,12 +18,13 @@ jobs:
         with:
           path: ~/.cache/ultralytics
           key: yolov8n-weights
-
       - name: Install dependencies
         run: pip install -r requirements.txt
-
       - name: Run unit tests
         run: pytest tests/ --ignore=tests/test_yolo_integration.py -v
-
+        env:
+          PYTHONPATH: ${{ github.workspace }}
       - name: Run YOLO integration test
         run: pytest tests/test_yolo_integration.py -v
+        env:
+          PYTHONPATH: ${{ github.workspace }}
