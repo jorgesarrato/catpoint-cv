@@ -1,64 +1,33 @@
 name: Tests
+
 on:
   push:
   pull_request:
+
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
           cache: "pip"
-
+          
       - name: Cache YOLO weights
         uses: actions/cache@v4
         with:
           path: ~/.cache/ultralytics
           key: yolov8n-weights
-          
+
       - name: Install dependencies
         run: pip install -r requirements.txt
-        
-      - name: Show working directory and tree
-        run: |
-          pwd
-          ls -lR
-          
-      - name: Print PYTHONPATH
-        run: echo $PYTHONPATH
-        env:
-          PYTHONPATH: ${{ github.workspace }}/src
-          
-      - name: Check __init__.py files in src
-        run: |
-          echo "Expected __init__.py files:"
-          find src -type d | while read dir; do
-            if [ ! -f "$dir/__init__.py" ]; then
-              echo "MISSING: $dir/__init__.py"
-            else
-              echo "FOUND:   $dir/__init__.py"
-            fi
-          done
-          
-      - name: Print sys.path and test import
-        run: |
-          python -c "import sys; print('sys.path:', sys.path)"
-          python -c "from src.dataset import pipeline; print('Pipeline loaded from', pipeline.__file__)"
-          python -c "from src.dataset import saver; print('Saver loaded from', saver.__file__)"
-          python -c "from src.dataset import variety_filter; print('VarietyFilter loaded from', variety_filter.__file__)"
-        env:
-          PYTHONPATH: ${{ github.workspace }}/src
-        
+
       - name: Run unit tests
-        env:
-          PYTHONPATH: ${{ github.workspace }}/src
-        run: python -m pytest tests/ --ignore=tests/test_yolo_integration.py -v
-        
+        run: pytest tests/ --ignore=tests/test_yolo_integration.py -v
+
       - name: Run YOLO integration test
-        env:
-          PYTHONPATH: ${{ github.workspace }}/src
-        run: python -m pytest tests/test_yolo_integration.py -v
+        run: pytest tests/test_yolo_integration.py -v
