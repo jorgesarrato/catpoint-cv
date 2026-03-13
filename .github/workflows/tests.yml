@@ -25,10 +25,10 @@ jobs:
         
       - name: Run unit tests
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}/src
         run: python -m pytest tests/ --ignore=tests/test_yolo_integration.py -v
         
       - name: Run YOLO integration test
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}/src
         run: python -m pytest tests/test_yolo_integration.py -v
