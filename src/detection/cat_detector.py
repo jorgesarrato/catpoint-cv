@@ -79,12 +79,42 @@ class CatDetector:
         self.imgsz = imgsz
         self._model = None
         self._model_path = model_path
+        self._is_openvino: bool = False
 
     def _load_model(self):
-        """Lazy-load model on first use."""
-        if self._model is None:
-            from ultralytics import YOLO
-            self._model = YOLO(self._model_path)
+        """Lazy-load model on first use.
+        
+        If model_path points to a .pt file, exports it to OpenVINO FP32 format
+        on first run (produces a <stem>_openvino_model/ directory alongside the
+        .pt file), then loads the exported model. Subsequent runs skip the export
+        and load directly from the OpenVINO directory.
+ 
+        If model_path already points to an OpenVINO directory, loads it directly.
+        Sets self._is_openvino so other methods can adapt their behaviour.
+        """
+        if self._model is not None:
+            return
+ 
+        from ultralytics import YOLO
+        from pathlib import Path
+ 
+        path = Path(self._model_path)
+ 
+        if path.suffix == ".pt":
+            openvino_dir = path.parent / (path.stem + "_openvino_model")
+            if not openvino_dir.exists():
+                pt_model = YOLO(self._model_path)
+                pt_model.export(
+                    format="openvino",
+                    half=False,
+                    imgsz=self.imgsz,
+                    task="detect",
+                )
+            self._model = YOLO(str(openvino_dir), task="detect")
+            self._is_openvino = True
+        else:
+            self._model = YOLO(self._model_path, task="detect")
+            self._is_openvino = True
 
     def detect(self, frame: np.ndarray) -> DetectionResult:
         """Run inference on a single frame and return cat detections."""
@@ -117,19 +147,29 @@ class CatDetector:
 
     def detect_all(self, frame: np.ndarray) -> Dict[str, float]:
         """
-        Run inference without any class filter and return all detections.
-        Returns a dict of {class_name: best_confidence} for debug purposes.
+        Run inference and return all detections for debug purposes.
+        Returns a dict of {class_name: best_confidence}.
+ 
+        Note: OpenVINO models are exported with a fixed class filter (cat only),
+        so this method falls back to cat-only detection when an OpenVINO model
+        is loaded rather than attempting an unfiltered 80-class pass, which
+        crashes the OpenVINO runtime.
         """
         self._load_model()
-
-        results = self._model.predict(
-            frame,
-            conf=0.1,  # low threshold to catch weak detections
+ 
+        is_openvino = self._is_openvino
+ 
+        predict_kwargs = dict(
+            conf=0.1,
             device=self.device,
             imgsz=self.imgsz,
             verbose=False,
         )
-
+        if not is_openvino:
+            predict_kwargs["classes"] = None  # unfiltered — all 80 COCO classes
+ 
+        results = self._model.predict(frame, **predict_kwargs)
+ 
         found: Dict[str, float] = {}
         if results and len(results) > 0:
             boxes = results[0].boxes
@@ -138,10 +178,10 @@ class CatDetector:
                     class_id = int(box.cls[0])
                     conf = float(box.conf[0])
                     name = COCO_NAMES.get(class_id, f"class_{class_id}")
-                    # Keep highest confidence per class
                     if name not in found or conf > found[name]:
                         found[name] = conf
         return found
+ 
 
     def draw_detections(self, frame: np.ndarray, result: DetectionResult) -> np.ndarray:
         """Draw bounding boxes on a copy of the frame."""

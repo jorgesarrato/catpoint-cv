@@ -1,8 +1,9 @@
 # Core
-opencv-python==4.13.0.92
-numpy==2.2.6
+opencv-python==4.9.0.80
+numpy>=1.26.4,<2.0.0
 python-dotenv==1.2.2
 ultralytics>=8.3.0
+openvino>=2024.0.0
 
 # Dev / testing
 pytest>=8.0.0
