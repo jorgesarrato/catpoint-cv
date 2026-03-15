@@ -1,5 +1,5 @@
 # Core
-opencv-python==4.9.0.80
+opencv-python==4.13.0.92
 numpy>=2.0.0
 python-dotenv==1.2.2
 ultralytics>=8.3.0
