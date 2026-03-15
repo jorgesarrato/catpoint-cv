@@ -73,3 +73,41 @@ class TestVarietyFilter:
         frame = make_random_frame(seed=7)
         vf.should_save(frame)
         assert vf.should_save(frame) is False
+
+
+class TestVarietyFilterBackground:
+    def test_first_background_always_saved(self):
+        vf = VarietyFilter(background_interval_sec=60.0)
+        assert vf.should_save_background() is True
+
+    def test_background_not_saved_within_interval(self):
+        vf = VarietyFilter(background_interval_sec=60.0)
+        vf.should_save_background()
+        assert vf.should_save_background() is False
+
+    def test_background_saved_after_interval(self):
+        vf = VarietyFilter(background_interval_sec=60.0)
+        vf.should_save_background()
+        vf._last_background_save_time -= 61.0
+        assert vf.should_save_background() is True
+
+    def test_background_independent_from_cat_filter(self):
+        """Saving a cat frame does not affect background timer and vice versa."""
+        vf = VarietyFilter(min_interval_sec=0.0, background_interval_sec=60.0)
+        frame = make_frame()
+        vf.should_save(frame)
+        # Background timer untouched — first call should still pass
+        assert vf.should_save_background() is True
+
+    def test_reset_clears_background_timer(self):
+        vf = VarietyFilter(background_interval_sec=60.0)
+        vf.should_save_background()
+        vf.reset()
+        assert vf.should_save_background() is True
+
+    def test_reset_background_timer_delays_next_save(self):
+        vf = VarietyFilter(background_interval_sec=60.0)
+        vf.should_save_background()  # first save
+        vf._last_background_save_time -= 61.0  # simulate interval passed
+        vf.reset_background_timer()  # reset — should delay again
+        assert vf.should_save_background() is False

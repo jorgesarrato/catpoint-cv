@@ -39,6 +39,7 @@ class DatasetPipeline:
         self._total_frames: int = 0
         self._detection_frames: int = 0
         self._saved_frames: int = 0
+        self._background_frames: int = 0
 
     def process(self, frame: np.ndarray) -> Tuple[np.ndarray, Optional[DetectionResult]]:
 
@@ -48,6 +49,9 @@ class DatasetPipeline:
         result = self.detector.detect(preprocessed)
 
         if not result.has_cats:
+            if self.variety_filter.should_save_background():
+                self.saver.save_background(preprocessed)
+                self._background_frames += 1
             return preprocessed, None
 
         self._detection_frames += 1
@@ -65,4 +69,5 @@ class DatasetPipeline:
             "total_frames": self._total_frames,
             "detection_frames": self._detection_frames,
             "saved_frames": self._saved_frames,
+            "background_frames": self._background_frames,
         }

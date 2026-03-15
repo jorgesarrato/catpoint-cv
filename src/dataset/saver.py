@@ -40,7 +40,19 @@ class DatasetSaver:
 
     def save(self, result: DetectionResult, frame: Optional[np.ndarray] = None) -> Optional[str]:
         """
-        Save a detection event.
+        Save a detection event to disk.
+
+        Parameters
+        ----------
+        result : DetectionResult
+            Detection result containing bounding boxes.
+        frame : np.ndarray, optional
+            If provided, used instead of result.frame.
+
+        Returns
+        -------
+        str | None
+            Base stem used for saved files, or None if nothing was saved.
         """
         img = frame if frame is not None else result.frame
         if img is None or not result.has_cats:
@@ -99,3 +111,33 @@ class DatasetSaver:
     @property
     def session_count(self) -> int:
         return self._session_count
+
+    def save_background(self, frame: np.ndarray) -> Optional[str]:
+        """
+        Save a background frame (no detections) for use as a negative sample.
+        No crops or bounding boxes are saved — just the full frame and metadata.
+        """
+        if frame is None:
+            return None
+
+        ts = datetime.now()
+        stem = ts.strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        stem = f"{stem}_background"
+
+        full_path = self.output_dir / f"{stem}.jpg"
+        cv2.imwrite(
+            str(full_path), frame,
+            [cv2.IMWRITE_JPEG_QUALITY, self.jpg_quality]
+        )
+
+        meta = {
+            "timestamp": ts.isoformat(),
+            "cat_count": 0,
+            "full_frame": str(full_path),
+            "crops": [],
+            "detections": [],
+        }
+        meta_path = self.output_dir / f"{stem}_meta.json"
+        meta_path.write_text(json.dumps(meta, indent=2))
+
+        return stem

@@ -1,15 +1,3 @@
-"""
-Variety filter: decides whether a new frame is different enough
-from the last saved frame to be worth keeping.
-
-Strategy:
-  1. Resize frame to a small thumbnail for fast comparison.
-  2. Compute a normalized HSV histogram.
-  3. Compare with the last-saved histogram via Bhattacharyya distance.
-  4. Also enforce a minimum time gap between saves.
-  5. Save if distance > threshold OR enough time has passed (keep slow-moving cats).
-"""
-
 import time
 from typing import Optional
 import cv2
@@ -26,15 +14,18 @@ class VarietyFilter:
         similarity_threshold: float = 0.15,
         min_interval_sec: float = 2.0,
         max_interval_sec: float = 30.0,
+        background_interval_sec: float = 60.0,
         thumb_size: tuple = (64, 64),
     ):
         self.similarity_threshold = similarity_threshold
         self.min_interval_sec = min_interval_sec
         self.max_interval_sec = max_interval_sec
+        self.background_interval_sec = background_interval_sec
         self.thumb_size = thumb_size
 
         self._last_histogram: Optional[np.ndarray] = None
         self._last_save_time: float = 0.0
+        self._last_background_save_time: float = 0.0
 
     def _compute_histogram(self, frame: np.ndarray) -> np.ndarray:
         thumb = cv2.resize(frame, self.thumb_size)
@@ -51,14 +42,12 @@ class VarietyFilter:
         now = time.monotonic()
         elapsed = now - self._last_save_time
 
-        # Respect minimum interval
         if elapsed < self.min_interval_sec:
             return False
 
         hist = self._compute_histogram(frame)
 
         if self._last_histogram is None:
-            # First frame ever — always save
             self._accept(hist, now)
             return True
 
@@ -66,16 +55,22 @@ class VarietyFilter:
             self._last_histogram, hist, cv2.HISTCMP_BHATTACHARYYA
         )
 
-        # Force-save if max interval exceeded (even if cat hasn't moved)
         if elapsed >= self.max_interval_sec:
             self._accept(hist, now)
             return True
 
-        # Save if frame is different enough
         if distance >= self.similarity_threshold:
             self._accept(hist, now)
             return True
 
+        return False
+
+    def should_save_background(self) -> bool:
+        """Returns True if enough time has passed to save a background frame."""
+        now = time.monotonic()
+        if now - self._last_background_save_time >= self.background_interval_sec:
+            self._last_background_save_time = now
+            return True
         return False
 
     def _accept(self, hist: np.ndarray, timestamp: float) -> None:
@@ -85,3 +80,8 @@ class VarietyFilter:
     def reset(self) -> None:
         self._last_histogram = None
         self._last_save_time = 0.0
+        self._last_background_save_time = 0.0
+
+    def reset_background_timer(self) -> None:
+        """Reset background timer so next background save is delayed by a full interval."""
+        self._last_background_save_time = time.monotonic()

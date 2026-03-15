@@ -111,3 +111,32 @@ class TestDatasetSaver:
         result = DetectionResult(detections=[det], frame=internal_frame)
         stem = tmp_saver.save(result, frame=external_frame)
         assert stem is not None  # just ensure it ran cleanly
+
+
+class TestDatasetSaverBackground:
+    def test_background_returns_stem(self, tmp_saver):
+        stem = tmp_saver.save_background(make_frame())
+        assert stem is not None
+        assert "background" in stem
+
+    def test_background_frame_saved(self, tmp_saver):
+        stem = tmp_saver.save_background(make_frame())
+        assert (Path(tmp_saver.output_dir) / f"{stem}.jpg").exists()
+
+    def test_background_meta_saved(self, tmp_saver):
+        stem = tmp_saver.save_background(make_frame())
+        meta_path = Path(tmp_saver.output_dir) / f"{stem}_meta.json"
+        assert meta_path.exists()
+        import json
+        meta = json.loads(meta_path.read_text())
+        assert meta["cat_count"] == 0
+        assert meta["detections"] == []
+        assert meta["crops"] == []
+
+    def test_background_no_crops_saved(self, tmp_saver):
+        stem = tmp_saver.save_background(make_frame())
+        crops = list(Path(tmp_saver.output_dir).glob(f"{stem}_crop_*.jpg"))
+        assert crops == []
+
+    def test_background_none_frame_returns_none(self, tmp_saver):
+        assert tmp_saver.save_background(None) is None

@@ -12,7 +12,7 @@ from src.dataset.saver import DatasetSaver
 from conftest import make_frame
 
 
-def _make_pipeline(tmp_path, cat_detected: bool, variety_passes: bool):
+def _make_pipeline(tmp_path, cat_detected: bool, variety_passes: bool, background_passes: bool = False):
     """Build a pipeline with mocked detector and real filter/saver."""
     detector = MagicMock()
     det_result = DetectionResult(
@@ -23,6 +23,7 @@ def _make_pipeline(tmp_path, cat_detected: bool, variety_passes: bool):
 
     variety_filter = MagicMock()
     variety_filter.should_save.return_value = variety_passes
+    variety_filter.should_save_background.return_value = background_passes
 
     saver = MagicMock()
 
@@ -142,3 +143,51 @@ class TestDatasetPipeline:
 
         pipeline.process(original)
         assert received["frame"] is original
+
+    def test_background_frame_saved_when_no_cats(self, tmp_path):
+        detector = MagicMock()
+        detector.detect.return_value = DetectionResult(detections=[], frame=make_frame())
+        variety_filter = MagicMock()
+        variety_filter.should_save_background.return_value = True
+        saver = MagicMock()
+
+        pipeline = DatasetPipeline(detector=detector, variety_filter=variety_filter,
+                                   saver=saver)
+        pipeline.process(make_frame())
+
+        saver.save_background.assert_called_once()
+        assert pipeline.stats["background_frames"] == 1
+
+    def test_background_frame_not_saved_when_filter_rejects(self, tmp_path):
+        detector = MagicMock()
+        detector.detect.return_value = DetectionResult(detections=[], frame=make_frame())
+        variety_filter = MagicMock()
+        variety_filter.should_save_background.return_value = False
+        saver = MagicMock()
+
+        pipeline = DatasetPipeline(detector=detector, variety_filter=variety_filter,
+                                   saver=saver)
+        pipeline.process(make_frame())
+
+        saver.save_background.assert_not_called()
+        assert pipeline.stats["background_frames"] == 0
+
+    def test_background_save_does_not_increment_saved_frames(self, tmp_path):
+        detector = MagicMock()
+        detector.detect.return_value = DetectionResult(detections=[], frame=make_frame())
+        variety_filter = MagicMock()
+        variety_filter.should_save_background.return_value = True
+        saver = MagicMock()
+
+        pipeline = DatasetPipeline(detector=detector, variety_filter=variety_filter,
+                                   saver=saver)
+        pipeline.process(make_frame())
+
+        assert pipeline.stats["saved_frames"] == 0
+        assert pipeline.stats["background_frames"] == 1
+
+    def test_background_not_checked_when_cats_detected(self, tmp_path):
+        """should_save_background must not be called when cats are present."""
+        pipeline, _ = _make_pipeline(tmp_path, cat_detected=True, variety_passes=True)
+        pipeline.process(make_frame())
+        pipeline.variety_filter.should_save_background.assert_not_called()
