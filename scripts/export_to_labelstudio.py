@@ -30,6 +30,15 @@ from pathlib import Path
 import cv2
 
 
+# Maps class_id from fine-tuned model to Label Studio label name.
+# class_id 15 is the COCO 'cat' class from the pretrained model.
+CLASS_ID_TO_LABEL: dict[int, str] = {
+    0: "salo",
+    1: "taro",
+    15: "cat",
+}
+
+
 def load_labeled_filenames(export_path: Path) -> set:
     """Extract image filenames already present in a Label Studio export JSON."""
     if not export_path.exists():
@@ -82,6 +91,8 @@ def make_task(image_path: Path, detections: list, base_url: str = "", document_r
     results = []
     for det in detections:
         coords = bbox_to_percent(det["bbox"], w, h)
+        class_id = det.get("class_id")
+        label = CLASS_ID_TO_LABEL.get(class_id, "cat") if class_id is not None else "cat"
         results.append({
             "type": "rectanglelabels",
             "from_name": "label",
@@ -90,7 +101,7 @@ def make_task(image_path: Path, detections: list, base_url: str = "", document_r
             "original_height": h,
             "value": {
                 **coords,
-                "rectanglelabels": ["cat"],
+                "rectanglelabels": [label],
             },
         })
 

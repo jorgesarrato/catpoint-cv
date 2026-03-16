@@ -96,6 +96,7 @@ class DatasetSaver:
             "crops": crops_saved,
             "detections": [
                 {
+                    "class_id": det.class_id,
                     "bbox": list(det.bbox),
                     "confidence": round(det.confidence, 4),
                 }
