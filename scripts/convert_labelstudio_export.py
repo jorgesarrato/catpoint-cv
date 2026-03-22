@@ -25,9 +25,9 @@ Background images (no annotations) get an empty .txt file —
 YOLO treats these as hard negative samples during training.
 
 Usage:
-    python scripts/convert_labelstudio_export.py --export data/labelstudio_export.json
+    python scripts/convert_labelstudio_export.py --export data/labelstudio_merged.json
     python scripts/convert_labelstudio_export.py \\
-        --export data/labelstudio_export.json \\
+        --export data/labelstudio_merged.json \\
         --output data/labeled \\
         --classes salo taro
 """
@@ -144,8 +144,8 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="Convert Label Studio export JSON to YOLO format"
     )
-    p.add_argument("--export", default="data/labelstudio_export.json",
-                   help="Label Studio export JSON file (default: data/labelstudio_export.json)")
+    p.add_argument("--export", default="data/labelstudio_merged.json",
+                   help="Label Studio export JSON file (default: data/labelstudio_merged.json)")
     p.add_argument("--output", default="data/labeled",
                    help="Output directory for images/ and labels/ (default: data/labeled)")
     p.add_argument("--classes", nargs="+", default=CLASS_NAMES,

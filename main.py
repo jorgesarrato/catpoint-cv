@@ -90,9 +90,8 @@ def main():
                     print("[DEBUG] no detections")
 
             if not args.no_display:
-                display = preprocessed.copy()
-                if result is not None:
-                    display = pipeline.detector.draw_detections(display, result)
+                display_result = result if result is not None else pipeline.detector.detect(preprocessed)
+                display = pipeline.detector.draw_detections(preprocessed.copy(), display_result)
                 stats = pipeline.stats
                 text = (f"Saved: {stats['saved_frames']} | "
                         f"Detected: {stats['detection_frames']} | "

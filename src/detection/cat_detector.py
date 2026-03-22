@@ -234,20 +234,21 @@ class CatDetector:
                     if name not in found or conf > found[name]:
                         found[name] = conf
         return found
+        
     def draw_detections(self, frame: np.ndarray, result: DetectionResult) -> np.ndarray:
-        """Draw bounding boxes on a copy of the frame."""
+        """Draw bounding boxes on a copy of the frame, colored by class."""
         import cv2
+        CLASS_COLORS = {0: (0, 165, 255), 1: (255, 255, 0), 15: (0, 255, 0)}
+        DEFAULT_COLOR = (0, 255, 255)
+ 
         out = frame.copy()
-        
-        model_names = getattr(self._model, 'names', COCO_NAMES)
-        
+        names = getattr(self._model, "names", {})
         for det in result.detections:
             x1, y1, x2, y2 = det.bbox
-            cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            
-            class_name = model_names.get(det.class_id, f"class_{det.class_id}")
-            
-            label = f"{class_name} {det.confidence:.2f}"
+            color = CLASS_COLORS.get(det.class_id, DEFAULT_COLOR)
+            name = names.get(det.class_id, f"class_{det.class_id}")
+            label = f"{name} {det.confidence:.2f}"
+            cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
             cv2.putText(out, label, (x1, y1 - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
         return out
