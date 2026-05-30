@@ -196,14 +196,14 @@ class CatDetector:
         if not frame.flags['C_CONTIGUOUS']:
             frame = np.ascontiguousarray(frame)
 
-        results = self._model.predict(
-            frame,
+        predict_kwargs = dict(
             conf=self.confidence_threshold,
             classes=[CAT_CLASS_ID] if self._num_classes == 80 else None,
             device=self.device,
             imgsz=self.imgsz,
             verbose=False,
         )
+        results = self._model.predict(frame, **predict_kwargs)
 
         detections = []
         if results and len(results) > 0:

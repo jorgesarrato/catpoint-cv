@@ -18,7 +18,7 @@ Each cycle improves the model's ability to distinguish Salo from Taro.
 
 - 12+ CPUs, 32GB RAM (no GPU required for inference)
 - Fine-tuning runs on Google Colab (T4 GPU) or locally on CPU (slower)
-- Inference uses OpenVINO FP32 acceleration (~3-6x faster than raw PyTorch on CPU)
+- Inference uses OpenVINO acceleration (FP32 or INT8) on CPU
 
 ---
 
@@ -71,7 +71,8 @@ catpoint-cv/
 │   ├── convert_labelstudio_export.py
 │   ├── split_dataset.py
 │   ├── train.py                    # fine-tune locally (CPU)
-│   └── export_openvino.py
+│   ├── export_openvino.py
+│   └── benchmark.py               # inference latency benchmarking
 │
 ├── src/
 │   ├── dataset/
@@ -124,6 +125,7 @@ python main.py \
 | `--no-display` | off | Disable live preview (for headless/SSH runs) |
 | `--debug` | off | Log all YOLO detections per frame (all classes) |
 | `--log-level` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `--threads` | `0` | OpenVINO inference threads (`0` = auto-detect) |
 | `--log-file` | none | Additionally log to this file |
 
 ### Keyboard shortcuts
@@ -239,14 +241,26 @@ python scripts/train.py --data data/labeled/dataset.yaml
 ### Export to OpenVINO
 
 ```bash
+# FP32 (default)
 python scripts/export_openvino.py --model best.pt --output models/
+
+# INT8 (recommended — ~2x faster on CPU, minimal accuracy loss)
+python scripts/export_openvino.py --model best.pt --int8 --data data/labeled/dataset.yaml --output models/
 ```
 
 ### Run inference with the fine-tuned model
 
 ```bash
+# FP32
 python main.py \
-    --model models/best_openvino_model \
+    --model models/best_fp32_openvino_model \
+    --imgsz 1280 \
+    --conf 0.25 \
+    --clahe
+
+# INT8 (faster)
+python main.py \
+    --model models/best_int8_openvino_model \
     --imgsz 1280 \
     --conf 0.25 \
     --clahe
@@ -297,11 +311,54 @@ pytest tests/ -v
 
 ### Model recommendations
 
-| Scenario | Model | imgsz | Notes |
-|----------|-------|-------|-------|
-| Fast collection, large cats | `yolov8n.pt` | 640 | Lightweight, good for close-up |
-| General use | `yolov8m.pt` | 1280 | Best accuracy/speed tradeoff |
-| Fine-tuned deployment | `models/best_openvino_model` | 1280 | Custom 2-class model |
+Cats appear small in the frame — median crop is ~93px (max dimension) in a 1920x1080 feed. 76% of crops are under 128px. This means `imgsz=1280` is essential for reliable detection.
+
+| Scenario | Model | imgsz | Precision | Notes |
+|----------|-------|-------|-----------|-------|
+| Fast collection, large cats | `yolov8n.pt` | 640 | FP32 | Lightweight, good for close-up |
+| General use | `yolov8m.pt` | 1280 | FP32 | Best accuracy for small objects |
+| Optimized deployment | `best_int8_openvino_model` | 1280 | INT8 | ~2x faster than FP32, <1% mAP loss |
+| Maximum speed | `yolov8s` + INT8 | 1280 | INT8 | ~3-4x faster than yolov8m FP32 |
+
+### Benchmarking
+
+Use the benchmark script to measure actual inference latency on your hardware:
+
+```bash
+# Compare FP32 vs INT8 on a real frame
+python scripts/benchmark.py \
+    --models models/best_fp32_openvino_model models/best_int8_openvino_model \
+    --imgsz 1280 \
+    --image data/raw/20260313_161054_885_1cats.jpg
+
+# Sweep model sizes and image resolutions
+python scripts/benchmark.py \
+    --models yolov8n.pt yolov8s.pt yolov8m.pt \
+    --imgsz 640 1280 \
+    --iterations 50
+
+# Export results to CSV for comparison
+python scripts/benchmark.py \
+    --models models/best_fp32_openvino_model models/best_int8_openvino_model \
+    --imgsz 1280 \
+    --csv benchmark_results.csv
+```
+
+Output shows per-frame latency (mean, p50, p95, p99) and throughput in FPS:
+
+```
+Model                                         Prec     imgsz     Mean      P50      P95      P99     FPS
+models/best_fp32_openvino_model               FP32      1280   120.3ms  119.1ms  125.4ms  128.7ms    8.3
+models/best_int8_openvino_model               INT8      1280    62.1ms   61.5ms   65.2ms   67.8ms   16.1
+```
+
+*(Example numbers — run on your hardware for actual results.)*
+
+### CPU performance tuning
+
+- **INT8 quantization** is the single biggest optimization (~2x speedup over FP32)
+- Use `--threads N` to pin OpenVINO inference threads (e.g., `--threads 10` to leave 2 cores for stream + OS)
+- Use `--frame-skip N` to reduce CPU load (e.g., `--frame-skip 1` processes every 2nd frame)
 
 ---
 

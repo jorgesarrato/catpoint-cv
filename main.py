@@ -7,6 +7,7 @@ Usage:
 
 import argparse
 import logging
+import os
 import signal
 import time
 import cv2
@@ -55,11 +56,17 @@ def parse_args():
                    help="Logging verbosity (default: INFO)")
     p.add_argument("--log-file", default=None,
                    help="Log to file in addition to stderr")
+    p.add_argument("--threads", type=int, default=0,
+                   help="OpenVINO inference threads (0 = auto-detect, default: 0)")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
+
+    # Pin OpenVINO inference threads before model is loaded
+    if args.threads > 0:
+        os.environ["OMP_NUM_THREADS"] = str(args.threads)
 
     # Configure logging
     handlers: list[logging.Handler] = [logging.StreamHandler()]
