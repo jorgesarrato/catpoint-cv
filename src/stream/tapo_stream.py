@@ -28,16 +28,40 @@ class TapoStream:
         return self
 
     def _update(self) -> None:
+        backoff = 1.0
+        max_backoff = 30.0
+
         while not self.stopped:
             if not self.cap.isOpened():
-                self.stopped = True
-                break
+                if not self._reconnect(backoff):
+                    backoff = min(backoff * 2, max_backoff)
+                    continue
+                backoff = 1.0
+
             ret, frame = self.cap.read()
+            if not ret:
+                if not self._reconnect(backoff):
+                    backoff = min(backoff * 2, max_backoff)
+                    continue
+                backoff = 1.0
+                continue
+
             with self._lock:
                 self.ret = ret
                 self.frame = frame
-            if not ret:
-                time.sleep(0.01)
+
+    def _reconnect(self, backoff: float) -> bool:
+        """Attempt to reconnect to the RTSP stream after a failure."""
+        self.cap.release()
+        print(f"[TapoStream] Connection lost. Retrying in {backoff:.0f}s...")
+        time.sleep(backoff)
+        if self.stopped:
+            return False
+        self.cap = cv2.VideoCapture(self.url)
+        if self.cap.isOpened():
+            print("[TapoStream] Reconnected.")
+            return True
+        return False
 
     def read(self) -> Optional[np.ndarray]:
         with self._lock:
@@ -49,3 +73,7 @@ class TapoStream:
     def stop(self) -> None:
         self.stopped = True
         self.cap.release()
+
+    def __del__(self):
+        if hasattr(self, "cap") and self.cap.isOpened():
+            self.cap.release()

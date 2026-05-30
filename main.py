@@ -73,6 +73,7 @@ def main():
         while True:
             frame = stream.read()
             if frame is None:
+                time.sleep(0.01)
                 continue
 
             preprocessed, result = pipeline.process(frame)
@@ -91,7 +92,7 @@ def main():
 
             if not args.no_display:
                 display_result = result if result is not None else pipeline.detector.detect(preprocessed)
-                display = pipeline.detector.draw_detections(preprocessed.copy(), display_result)
+                display = pipeline.detector.draw_detections(preprocessed, display_result)
                 stats = pipeline.stats
                 text = (f"Saved: {stats['saved_frames']} | "
                         f"Detected: {stats['detection_frames']} | "

@@ -169,7 +169,6 @@ def main():
     labels_dir.mkdir(parents=True, exist_ok=True)
 
     tasks = json.loads(export_path.read_text())
-    print(tasks)
 
     # Handle both list-of-dicts and wrapped formats
     if isinstance(tasks, dict):
@@ -177,8 +176,6 @@ def main():
 
     print(f"Processing {len(tasks)} tasks...")
     if tasks:
-        print(f"  First task type: {type(tasks[0])}")
-        print(tasks)
         if isinstance(tasks[0], dict):
             print(f"  First task keys: {list(tasks[0].keys())}")
 
