@@ -231,16 +231,16 @@ class CatDetector:
         """
         self._load_model()
 
-        is_openvino = self._is_openvino
+        if not frame.flags['C_CONTIGUOUS']:
+            frame = np.ascontiguousarray(frame)
 
         predict_kwargs = dict(
-            conf=0.1,
+            conf=self.confidence_threshold,
+            classes=None,
             device=self.device,
             imgsz=self.imgsz,
             verbose=False,
         )
-        if not is_openvino and self._num_classes == 80:
-            predict_kwargs["classes"] = None  # unfiltered — all 80 COCO classes
 
         results = self._model.predict(frame, **predict_kwargs)
 

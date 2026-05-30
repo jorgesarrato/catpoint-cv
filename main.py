@@ -68,6 +68,10 @@ def main():
     if args.threads > 0:
         os.environ["OMP_NUM_THREADS"] = str(args.threads)
 
+    # --debug implies DEBUG log level
+    if args.debug and args.log_level == "INFO":
+        args.log_level = "DEBUG"
+
     # Configure logging
     handlers: list[logging.Handler] = [logging.StreamHandler()]
     if args.log_file:
