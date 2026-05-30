@@ -41,6 +41,8 @@ def parse_args():
                    help="Preview window width in pixels (default 960)")
     p.add_argument("--debug", action="store_true",
                    help="Print all YOLO detections per frame (ignores class filter)")
+    p.add_argument("--frame-skip", type=int, default=0,
+                   help="Skip N frames between inferences (0 = process every frame)")
     p.add_argument("--clahe", action="store_true",
                    help="Enable CLAHE preprocessing to correct overexposure")
     p.add_argument("--clahe-clip", type=float, default=2.0,
@@ -69,11 +71,16 @@ def main():
     print(f"CLAHE preprocessing: {'enabled (clip={})'.format(args.clahe_clip) if args.clahe else 'disabled'}")
     print(f"Background saves: every {args.background_interval:.0f}s (press 'b' to save now)")
 
+    frame_count = 0
     try:
         while True:
             frame = stream.read()
             if frame is None:
                 time.sleep(0.01)
+                continue
+
+            frame_count += 1
+            if args.frame_skip > 0 and (frame_count % (args.frame_skip + 1)) != 1:
                 continue
 
             preprocessed, result = pipeline.process(frame)

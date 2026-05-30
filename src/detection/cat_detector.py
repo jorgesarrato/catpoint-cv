@@ -127,6 +127,8 @@ class CatDetector:
 
         from ultralytics import YOLO
         from pathlib import Path
+        import tempfile
+        import shutil
 
         path = Path(self._model_path)
 
@@ -134,12 +136,35 @@ class CatDetector:
             openvino_dir = path.parent / (path.stem + "_openvino_model")
             if not openvino_dir.exists():
                 pt_model = YOLO(self._model_path)
-                pt_model.export(
-                    format="openvino",
-                    half=False,
-                    imgsz=self.imgsz,
-                    task="detect",
-                )
+                # Export to a temp directory first, then rename atomically.
+                # This prevents a partial directory from being left behind
+                # if the export is interrupted.
+                tmp_dir = Path(tempfile.mkdtemp(
+                    dir=path.parent, prefix=f".{path.stem}_openvino_tmp_"
+                ))
+                try:
+                    pt_model.export(
+                        format="openvino",
+                        half=False,
+                        imgsz=self.imgsz,
+                        task="detect",
+                    )
+                    # Ultralytics writes to a fixed path next to the .pt file
+                    exported = path.parent / (path.stem + "_openvino_model")
+                    if exported.exists():
+                        # Export succeeded — it's already in the right place
+                        shutil.rmtree(tmp_dir, ignore_errors=True)
+                    else:
+                        shutil.rmtree(tmp_dir, ignore_errors=True)
+                        raise RuntimeError(
+                            f"OpenVINO export did not produce expected directory: {exported}"
+                        )
+                except Exception:
+                    # Clean up both the temp dir and any partial export
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                    if openvino_dir.exists():
+                        shutil.rmtree(openvino_dir, ignore_errors=True)
+                    raise
             self._model = YOLO(str(openvino_dir), task="detect")
             self._is_openvino = True
         else:
