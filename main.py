@@ -6,7 +6,8 @@ Usage:
 """
 
 import argparse
-import os
+import logging
+import signal
 import time
 import cv2
 from dotenv import load_dotenv
@@ -19,6 +20,8 @@ from src.dataset.saver import DatasetSaver
 from src.dataset.pipeline import DatasetPipeline
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args():
@@ -47,11 +50,27 @@ def parse_args():
                    help="Enable CLAHE preprocessing to correct overexposure")
     p.add_argument("--clahe-clip", type=float, default=2.0,
                    help="CLAHE clip limit (default 2.0, try 3.0-4.0 for heavy overexposure)")
+    p.add_argument("--log-level", default="INFO",
+                   choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                   help="Logging verbosity (default: INFO)")
+    p.add_argument("--log-file", default=None,
+                   help="Log to file in addition to stderr")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
+
+    # Configure logging
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if args.log_file:
+        handlers.append(logging.FileHandler(args.log_file))
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+        handlers=handlers,
+    )
 
     pipeline = DatasetPipeline(
         detector=CatDetector(model_path=args.model, confidence_threshold=args.conf, imgsz=args.imgsz),
@@ -65,15 +84,27 @@ def main():
         preprocessor=CLAHEPreprocessor(clip_limit=args.clahe_clip, enabled=args.clahe),
     )
 
+    # Graceful shutdown on SIGINT/SIGTERM (for headless --no-display runs)
+    stop_requested = False
+
+    def _signal_handler(signum, _frame):
+        nonlocal stop_requested
+        stop_requested = True
+        logger.info("Shutdown requested (signal %d)", signum)
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
     stream = TapoStream().start()
-    print("Stream started. Press 'q' to quit, 'b' to manually save a background frame.")
-    print(f"Saving dataset to: {args.output}")
-    print(f"CLAHE preprocessing: {'enabled (clip={})'.format(args.clahe_clip) if args.clahe else 'disabled'}")
-    print(f"Background saves: every {args.background_interval:.0f}s (press 'b' to save now)")
+    logger.info("Stream started. Press 'q' to quit, 'b' to manually save a background frame.")
+    logger.info("Saving dataset to: %s", args.output)
+    logger.info("CLAHE preprocessing: %s",
+                f"enabled (clip={args.clahe_clip})" if args.clahe else "disabled")
+    logger.info("Background saves: every %.0fs (press 'b' to save now)", args.background_interval)
 
     frame_count = 0
     try:
-        while True:
+        while not stop_requested:
             frame = stream.read()
             if frame is None:
                 time.sleep(0.01)
@@ -93,9 +124,9 @@ def main():
                             all_detections.items(), key=lambda x: -x[1]
                         )
                     )
-                    print(f"[DEBUG] {items}")
+                    logger.debug(items)
                 else:
-                    print("[DEBUG] no detections")
+                    logger.debug("no detections")
 
             if not args.no_display:
                 display_result = result if result is not None else pipeline.detector.detect(preprocessed)
@@ -119,26 +150,22 @@ def main():
             elif key == ord('b'):
                 pipeline.saver.save_background(preprocessed)
                 pipeline.variety_filter.reset_background_timer()
-                print(f"[MANUAL] Background frame saved")
+                logger.info("Manual background frame saved")
     finally:
         stream.stop()
         time.sleep(0.2)  # let the stream thread fully exit before touching GUI
         if not args.no_display:
-            # Explicitly destroy by name first, then flush the event queue
-            # multiple times — the single waitKey(1) is not always enough
-            # to drain pending native GUI callbacks on Linux, causing a segfault.
             cv2.destroyWindow("Cat Tracker")
             for _ in range(5):
                 cv2.waitKey(1)
             cv2.destroyAllWindows()
             cv2.waitKey(100)
         stats = pipeline.stats
-        print("\n--- Session Summary ---")
-        print(f"  Frames processed : {stats['total_frames']}")
-        print(f"  Cat detections   : {stats['detection_frames']}")
-        print(f"  Images saved     : {stats['saved_frames']}")
-        print(f"  Background saved : {stats['background_frames']}")
-        print(f"  Output dir       : {args.output}")
+        logger.info(
+            "Session summary: processed=%d detections=%d saved=%d background=%d dir=%s",
+            stats['total_frames'], stats['detection_frames'],
+            stats['saved_frames'], stats['background_frames'], args.output,
+        )
 
 
 if __name__ == "__main__":

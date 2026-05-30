@@ -1,6 +1,9 @@
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 # COCO class ID for 'cat'
@@ -181,8 +184,8 @@ class CatDetector:
             except Exception:
                 nc = 80
         self._num_classes = nc
-        print(f"[CatDetector] Loaded model with {self._num_classes} class(es): "
-              f"{getattr(self._model, 'names', {})}")
+        logger.info("Loaded model with %d class(es): %s",
+                    self._num_classes, getattr(self._model, 'names', {}))
 
     def detect(self, frame: np.ndarray) -> DetectionResult:
         """Run inference on a single frame and return cat detections."""

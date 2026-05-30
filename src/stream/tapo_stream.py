@@ -1,9 +1,12 @@
 import cv2
+import logging
 import os
 import threading
 import time
 from typing import Optional
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class TapoStream:
@@ -14,6 +17,14 @@ class TapoStream:
             user = os.getenv("TAPO_USERNAME")
             password = os.getenv("TAPO_PASSWORD")
             ip = os.getenv("TAPO_IP")
+            missing = [name for name, val in [
+                ("TAPO_USERNAME", user), ("TAPO_PASSWORD", password), ("TAPO_IP", ip)
+            ] if not val]
+            if missing:
+                raise ValueError(
+                    f"Missing required environment variables: {', '.join(missing)}. "
+                    "Set them in .env or export them before running."
+                )
             url = f"rtsp://{user}:{password}@{ip}:554/stream1"
 
         self.url = url
@@ -53,13 +64,13 @@ class TapoStream:
     def _reconnect(self, backoff: float) -> bool:
         """Attempt to reconnect to the RTSP stream after a failure."""
         self.cap.release()
-        print(f"[TapoStream] Connection lost. Retrying in {backoff:.0f}s...")
+        logger.warning("Connection lost. Retrying in %.0fs...", backoff)
         time.sleep(backoff)
         if self.stopped:
             return False
         self.cap = cv2.VideoCapture(self.url)
         if self.cap.isOpened():
-            print("[TapoStream] Reconnected.")
+            logger.info("Reconnected.")
             return True
         return False
 
