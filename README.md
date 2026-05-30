@@ -1,21 +1,47 @@
 # catpoint-cv
 
-A computer vision pipeline to detect and identify two cats (Salo and Taro) from a Tapo IP camera, using YOLOv8 with OpenVINO acceleration.
+A computer vision pipeline to detect and identify two cats (Salo and Taro) from a Tapo IP camera, using YOLOv8 with OpenVINO acceleration on CPU.
 
 ## Overview
 
-The pipeline has two phases:
+The project follows an iterative three-phase workflow:
 
-1. **Dataset generation** — run the camera feed through a pretrained YOLO model to collect labeled images of your cats
-2. **Fine-tuning** — label the images in Label Studio and fine-tune the model to distinguish between the two cats
+1. **Dataset collection** — stream live camera feed, detect cats with YOLO, and save diverse frames automatically
+2. **Labeling** — annotate collected images in Label Studio with per-cat bounding boxes
+3. **Fine-tuning & deployment** — train a cat-specific model and deploy it back to the pipeline
+
+Each cycle improves the model's ability to distinguish Salo from Taro.
 
 ---
 
-## Hardware
+## Hardware Requirements
 
-- 12 CPUs, 32GB RAM (no GPU)
-- Fine-tuning runs on Google Colab (T4 GPU)
-- Inference runs locally with OpenVINO acceleration on CPU
+- 12+ CPUs, 32GB RAM (no GPU required for inference)
+- Fine-tuning runs on Google Colab (T4 GPU) or locally on CPU (slower)
+- Inference uses OpenVINO FP32 acceleration (~3-6x faster than raw PyTorch on CPU)
+
+---
+
+## Quick Start
+
+```bash
+# 1. Create virtual environment
+python -m venv tapoenv
+source tapoenv/bin/activate
+pip install -r requirements.txt
+
+# 2. Configure camera credentials
+cat > .env <<EOF
+TAPO_USERNAME=your_username
+TAPO_PASSWORD=your_password
+TAPO_IP=192.168.x.x
+EOF
+
+# 3. Run the pipeline
+python main.py --model yolov8m.pt --conf 0.25 --imgsz 1280 --clahe
+```
+
+The first run automatically exports the model to OpenVINO format (~30s one-time cost).
 
 ---
 
@@ -49,43 +75,25 @@ catpoint-cv/
 │
 ├── src/
 │   ├── dataset/
-│   │   ├── pipeline.py             # orchestrates detection + saving
+│   │   ├── pipeline.py             # orchestrates detection + filtering + saving
 │   │   ├── saver.py
-│   │   └── variety_filter.py
+│   │   └── variety_filter.py       # Bhattacharyya distance deduplication
 │   ├── detection/
-│   │   ├── cat_detector.py         # YOLO wrapper + OpenVINO export
-│   │   └── preprocessor.py         # CLAHE preprocessing
+│   │   ├── cat_detector.py         # YOLO wrapper + OpenVINO auto-export
+│   │   └── preprocessor.py         # CLAHE contrast correction
 │   └── stream/
-│       └── tapo_stream.py          # threaded RTSP stream reader
+│       └── tapo_stream.py          # threaded RTSP reader with auto-reconnect
 │
 ├── tests/
-├── main.py
+├── main.py                         # entry point
 └── requirements.txt
-```
-
----
-
-## Installation
-
-```bash
-python -m venv tapoenv
-source tapoenv/bin/activate
-pip install -r requirements.txt
-```
-
-Create a `.env` file in the project root:
-
-```
-TAPO_USERNAME=your_username
-TAPO_PASSWORD=your_password
-TAPO_IP=192.168.x.x
 ```
 
 ---
 
 ## Phase 1 — Dataset Collection
 
-### Run the pipeline
+### Running the pipeline
 
 ```bash
 python main.py \
@@ -98,39 +106,47 @@ python main.py \
     --background-interval 60
 ```
 
-The first run will automatically export `yolov8m.pt` to OpenVINO FP32 format (takes ~30s, runs faster on subsequent launches).
-
-**Key options:**
+### Command-line options
 
 | Flag | Default | Description |
-|---|---|---|
-| `--model` | `yolov8n.pt` | Model weights or OpenVINO directory |
-| `--conf` | `0.4` | YOLO confidence threshold |
-| `--imgsz` | `640` | Inference resolution (use `1280` for small cats) |
+|------|---------|-------------|
+| `--model` | `yolov8n.pt` | Model weights (.pt) or OpenVINO directory |
+| `--conf` | `0.4` | Detection confidence threshold |
+| `--imgsz` | `640` | Inference resolution (use `1280` for distant/small cats) |
+| `--frame-skip` | `0` | Skip N frames between inferences (reduces CPU; `1` = process every 2nd frame) |
 | `--clahe` | off | Enable CLAHE contrast correction for overexposed feeds |
-| `--clahe-clip` | `2.0` | CLAHE aggressiveness (try `3.0`–`4.0` for bright cameras) |
-| `--display-width` | `960` | Preview window width in pixels |
+| `--clahe-clip` | `2.0` | CLAHE aggressiveness (try `3.0`-`4.0` for bright cameras) |
+| `--similarity` | `0.15` | Bhattacharyya distance threshold for variety filter |
+| `--min-interval` | `2.0` | Minimum seconds between saves |
+| `--max-interval` | `30.0` | Force save after this many seconds even if cat hasn't moved |
 | `--background-interval` | `60` | Seconds between automatic background frame saves |
-| `--no-display` | off | Disable live preview (useful for headless runs) |
-| `--debug` | off | Print all YOLO detections per frame |
+| `--display-width` | `960` | Preview window width in pixels |
+| `--no-display` | off | Disable live preview (for headless/SSH runs) |
+| `--debug` | off | Log all YOLO detections per frame (all classes) |
+| `--log-level` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `--log-file` | none | Additionally log to this file |
 
-**Keyboard shortcuts** (when display window is focused):
+### Keyboard shortcuts
 
-- `q` — quit
-- `b` — manually save the current frame as a background sample (resets the automatic background timer)
+When the display window is focused:
+
+- **q** — quit gracefully
+- **b** — manually save the current frame as a background sample
+
+For headless runs (`--no-display`), send `SIGINT` (Ctrl+C) or `SIGTERM` for a graceful shutdown with session summary.
 
 ### What gets saved
 
 Every qualifying frame is saved to `data/raw/`:
 
 ```
-20260314_103541_224_1cats.jpg       full frame (cat detected)
-20260314_103541_224_1cats_meta.json bounding boxes + confidence
-20260314_103541_224_background.jpg  background frame (no cat)
+20260314_103541_224_1cats.jpg             # full frame (cat detected)
+20260314_103541_224_1cats_meta.json       # bounding boxes + confidence
+20260314_103541_224_background.jpg        # background frame (no cat)
 20260314_103541_224_background_meta.json
 ```
 
-The **variety filter** prevents saving near-duplicate frames — a frame is only saved if it is visually different enough from the last saved one, or if a minimum time interval has elapsed.
+The **variety filter** prevents saving near-duplicates using HSV histogram comparison (Bhattacharyya distance). A frame is saved only if it differs visually from the last saved frame, or if the max interval has elapsed.
 
 ---
 
@@ -154,9 +170,7 @@ LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/path/to/catpoint-cv \
 label-studio start
 ```
 
-Or add those variables to `~/.local/share/label-studio/.env` and use your `run-label-studio.sh`.
-
-### Label Studio setup
+### Label Studio project setup
 
 1. Create a new project
 2. Use this labeling template:
@@ -172,16 +186,14 @@ Or add those variables to `~/.local/share/label-studio/.env` and use your `run-l
 </View>
 ```
 
-3. **Import** → upload `data/labelstudio_import.json`
-4. Label each image — bounding boxes from YOLO are pre-loaded for cat frames; background frames are blank for manual annotation
-5. **Export** → JSON format → save to `data/exports/`
+3. **Import** the generated `data/labelstudio_import.json`
+4. Label each image — YOLO pre-detections are shown for cat frames; background frames are blank
+5. **Export** as JSON to `data/exports/`
 
 ### Merge exports and convert to YOLO format
 
-After labeling sessions, merge all export files and convert:
-
 ```bash
-# Merge all export JSONs in data/exports/
+# Merge all export JSONs
 python scripts/merge_labelstudio_exports.py --input data/exports/
 
 # Convert to YOLO format
@@ -190,7 +202,7 @@ python scripts/convert_labelstudio_export.py \
     --document-root /path/to/catpoint-cv
 ```
 
-Output lands in `data/labeled/images/` and `data/labeled/labels/`.
+Output: `data/labeled/images/` and `data/labeled/labels/`.
 
 ---
 
@@ -202,22 +214,21 @@ Output lands in `data/labeled/images/` and `data/labeled/labels/`.
 python scripts/split_dataset.py --input data/labeled
 ```
 
-This creates `train/`, `val/`, `test/` splits (80/10/10) and writes `data/labeled/dataset.yaml`.
+Creates `train/`, `val/`, `test/` splits (80/10/10) and writes `data/labeled/dataset.yaml`.
 
-### Fine-tune on Google Colab
+### Fine-tune on Google Colab (recommended)
 
 ```bash
-# Zip the dataset
 zip -r labeled.zip data/labeled/
 ```
 
 Upload `labeled.zip` to `MyDrive/catpoint-cv/labeled.zip`, then open `notebooks/train.ipynb` in Colab:
 
-1. **Runtime → Change runtime type → T4 GPU**
+1. **Runtime > Change runtime type > T4 GPU**
 2. Set `DRIVE_ZIP_PATH` in the config cell if needed
-3. **Runtime → Run all**
+3. **Runtime > Run all**
 
-`best.pt` is saved automatically to `MyDrive/catpoint-cv/checkpoints/best.pt`.
+The best checkpoint is saved to `MyDrive/catpoint-cv/checkpoints/best.pt`.
 
 ### Fine-tune locally (CPU, slower)
 
@@ -231,7 +242,7 @@ python scripts/train.py --data data/labeled/dataset.yaml
 python scripts/export_openvino.py --model best.pt --output models/
 ```
 
-### Run inference with fine-tuned model
+### Run inference with the fine-tuned model
 
 ```bash
 python main.py \
@@ -243,40 +254,87 @@ python main.py \
 
 ---
 
-## Iterative improvement
+## Iterative Improvement
 
-As the fine-tuned model collects more images, repeat the labeling and fine-tuning cycle:
+As the fine-tuned model runs, repeat the cycle:
 
 ```
-collect more images (Phase 1)
-    → label new images in Label Studio (Phase 2)
-    → merge exports + convert (Phase 2)
-    → split dataset (Phase 3)
-    → fine-tune from previous best.pt checkpoint (Phase 3)
-    → export to OpenVINO (Phase 3)
-    → deploy
+Collect more images (Phase 1)
+  -> Label new images in Label Studio (Phase 2)
+  -> Merge exports + convert (Phase 2)
+  -> Split full dataset (Phase 3)
+  -> Fine-tune from previous best.pt on ALL accumulated data (Phase 3)
+  -> Export to OpenVINO (Phase 3)
+  -> Deploy updated model
 ```
 
-Always fine-tune from the **previous FP32 checkpoint** on the **full accumulated dataset** — not just new images, to avoid catastrophic forgetting.
+Always fine-tune from the **previous FP32 checkpoint** on the **full accumulated dataset** to avoid catastrophic forgetting.
 
 ---
 
-## Running tests
+## Running Tests
 
 ```bash
 # Unit tests only (no network, no model download)
 pytest tests/ -m "not integration" -v
 
-# YOLO integration test (downloads yolov8n.pt and a test image)
+# YOLO integration test (downloads yolov8n.pt + a test image)
 pytest tests/ -m "integration" -v
+
+# All tests
+pytest tests/ -v
 ```
 
 ---
 
-## Model notes
+## Architecture Notes
 
-- **YOLOv8m** is recommended — good balance of accuracy and CPU speed
-- **imgsz=1280** is recommended for cats occupying ~100px in a 1920×1080 frame
-- **CLAHE** helps with overexposed or IR night-mode frames
-- OpenVINO FP32 gives ~3–6x speedup over raw PyTorch on CPU
-- The model is exported automatically on first run — delete the `*_openvino_model/` directory to force a re-export
+- **TapoStream** reads RTSP frames in a background thread with automatic reconnection (exponential backoff up to 30s) on connection loss
+- **CatDetector** lazy-loads the model on first inference and auto-exports `.pt` to OpenVINO; failed exports are cleaned up atomically
+- **DatasetPipeline** orchestrates: preprocess (CLAHE) -> detect (YOLO) -> filter (variety) -> save
+- **VarietyFilter** uses HSV histogram Bhattacharyya distance to skip near-duplicate frames, with time-based overrides
+- All `print()` output uses Python's `logging` module — configure with `--log-level` and `--log-file`
+
+### Model recommendations
+
+| Scenario | Model | imgsz | Notes |
+|----------|-------|-------|-------|
+| Fast collection, large cats | `yolov8n.pt` | 640 | Lightweight, good for close-up |
+| General use | `yolov8m.pt` | 1280 | Best accuracy/speed tradeoff |
+| Fine-tuned deployment | `models/best_openvino_model` | 1280 | Custom 2-class model |
+
+---
+
+## Future Features
+
+### Real-time notifications
+Send push notifications (Telegram, MQTT, or Home Assistant) when a specific cat is detected. The detection loop already identifies which cat is present — just needs a notification hook with configurable cooldown.
+
+### Confidence-based auto-labeling
+For fine-tuned model predictions with very high confidence (>0.95), auto-label new frames without manual intervention in Label Studio. Route only uncertain detections (confidence 0.3-0.7) to manual labeling, dramatically speeding up the iterative refinement loop.
+
+### Activity tracking and logging
+Track cat presence over time: when each cat appears, duration of visits, movement patterns. Store as time-series data (SQLite or InfluxDB) for visualization — e.g., "Salo was in the room from 2:00-3:30 AM".
+
+### Multi-camera support
+Extend `TapoStream` to accept multiple camera URLs. Run independent detection pipelines per camera with a shared model, or fuse detections across overlapping views.
+
+### Web dashboard
+Replace the OpenCV preview window with a lightweight web UI (FastAPI + HTMX or similar) showing live feed, detection stats, recent captures, and activity history. Enables remote monitoring without X11/display forwarding.
+
+### Active learning pipeline
+Instead of fixed-interval saving, prioritize frames where the model is most uncertain (confidence between 0.3-0.7). These are the most valuable samples for retraining and maximize improvement per labeled image.
+
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `ValueError: Missing required environment variables` | Set `TAPO_USERNAME`, `TAPO_PASSWORD`, `TAPO_IP` in `.env` |
+| OpenCV window crashes on exit (Linux) | Fixed — the pipeline flushes GUI events before exit |
+| Model loads slowly on first run | One-time OpenVINO export; subsequent runs load instantly |
+| Corrupted `*_openvino_model/` directory | Delete it — the pipeline will re-export cleanly on next run |
+| Stream silently stops receiving frames | Auto-reconnect handles this; check `--log-level DEBUG` for details |
+| Too many similar frames saved | Lower `--similarity` (e.g., `0.10`) or increase `--min-interval` |
+| Cats too small to detect | Use `--imgsz 1280` and a larger model (`yolov8m.pt`) |
